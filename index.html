@@ -16,7 +16,6 @@
 				overflow: hidden;
 			}
 
-			/* Google OAuth Overlay (Image A) */
 			#login-overlay {
 				position: absolute;
 				top: 0;
@@ -51,7 +50,6 @@
 				margin-bottom: 24px;
 			}
 
-			/* 3D Visualizer Menu */
 			#menu {
 				position: absolute;
 				bottom: 20px;
@@ -76,7 +74,6 @@
 				background-color: rgba(0,255,255,0.5);
 			}
 
-			/* Tile Custom Styling (Image B) */
 			.element {
 				width: 120px;
 				height: 160px;
@@ -133,22 +130,22 @@
 				text-align: center;
 			}
 		</style>
+
+		<!-- Global OAuth Callback -->
+		<script>
+			function handleCredentialResponse(response) {
+				if (response.credential) {
+					document.getElementById('login-overlay').style.display = 'none';
+					document.getElementById('menu').style.display = 'block';
+					if (window.loadDataAndInit) {
+						window.loadDataAndInit();
+					}
+				}
+			}
+		</script>
 	</head>
 	<body>
-				<script>
-  // Global callback defined before GSI library initializes
-  function handleCredentialResponse(response) {
-    if (response.credential) {
-      document.getElementById('login-overlay').style.display = 'none';
-      document.getElementById('menu').style.display = 'block';
-      if (window.loadDataAndInit) {
-        window.loadDataAndInit();
-      }
-    }
-  }
-</script>
 
-		<!-- Login Screen Overlay -->
 		<div id="login-overlay">
 			<div class="login-card">
 				<h2>Welcome Back</h2>
@@ -185,63 +182,51 @@
 			import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 			import { CSS3DRenderer, CSS3DObject } from 'three/addons/renderers/CSS3DRenderer.js';
 
-			const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5jh2pPbUpqqsxB_2rttpHz8EjNDFwyem_nTq9BSL8GrXi6w2BDb0fN01bLlPT4MFuTqQfvFVeCtGz/pub?output=csv';
+			const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1dXippVBo8rNZcKz_KnsPD7o2l03ZtTyQ2C8wZHecY7s/export?format=csv';
 
-
-			// Make loadDataAndInit accessible to the global handleCredentialResponse
-  window.loadDataAndInit = function() {
-    Papa.parse(GOOGLE_SHEET_CSV_URL, {
-      download: true,
-      header: true,
-      complete: function(results) {
-        init(results.data);
-        animate();
-      },
-      error: function(err) {
-        init(generateMockData());
-        animate();
-      }
-    });
-  };
 			let camera, scene, renderer, controls;
 			const objects = [];
 			const targets = { table: [], sphere: [], helix: [], grid: [] };
 
-			// Expose login handler globally for Google GSI API callback
-			window.handleCredentialResponse = function(response) {
-				if (response.credential) {
-					document.getElementById('login-overlay').style.display = 'none';
-					document.getElementById('menu').style.display = 'block';
-					loadDataAndInit();
-				}
-			};
-
-			function loadDataAndInit() {
-				Papa.parse(GOOGLE_SHEET_CSV_URL, {
-					download: true,
-					header: true,
-					complete: function(results) {
-						init(results.data);
-						animate();
-					},
-					error: function(err) {
-						console.error("CSV Fetch Failed. Loading fallback preview...", err);
-						init(generateMockData());
-						animate();
+			function getField(item, keys) {
+				for (const k of keys) {
+					for (const prop in item) {
+						if (prop.trim().toLowerCase() === k.toLowerCase() && item[prop]) {
+							return item[prop].toString().trim();
+						}
 					}
-				});
+				}
+				return '';
 			}
 
 			function parseNetWorth(val) {
 				if (!val) return 0;
-				return parseFloat(val.toString().replace(/[^0-9.-]+/g, '')) || 0;
+				return parseFloat(val.replace(/[^0-9.-]+/g, '')) || 0;
 			}
 
 			function getTileBgColor(netWorth) {
-				if (netWorth < 100000) return '#EF3022'; // Red (<$100K)
-				if (netWorth <= 200000) return '#F39C12'; // Orange (>$100K)
-				return '#3A548'; // Green (>$200K)
+				if (netWorth < 100000) return '#EF3022';  // Red (<$100K)
+				if (netWorth <= 200000) return '#F39C12'; // Orange ($100K–$200K)
+				return '#3A8548';                         // Green (>$200K)
 			}
+
+			window.loadDataAndInit = function() {
+				Papa.parse(GOOGLE_SHEET_CSV_URL, {
+					download: true,
+					header: true,
+					skipEmptyLines: true,
+					complete: function(results) {
+						const cleanData = results.data.filter(row => getField(row, ['Name']) !== '');
+						init(cleanData.length > 0 ? cleanData : generateMockData());
+						animate();
+					},
+					error: function(err) {
+						console.error("CSV fetch failed, using fallback:", err);
+						init(generateMockData());
+						animate();
+					}
+				});
+			};
 
 			function init(data) {
 				camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 10000);
@@ -249,31 +234,34 @@
 
 				scene = new THREE.Scene();
 
-				// 1. Build Tiles & Table Target Layout (20 x 10 Grid)
 				data.forEach((item, i) => {
-					const netWorthNum = parseNetWorth(item['Net Worth'] || item.NetWorth || item.networth);
-					
+					const nameVal = getField(item, ['Name']) || `User ${i + 1}`;
+					const photoVal = getField(item, ['Photo', 'Photo URL', 'Image']) || 'https://via.placeholder.com/65';
+					const netWorthStr = getField(item, ['Net Worth', 'NetWorth', 'Net_Worth']);
+					const netWorthNum = parseNetWorth(netWorthStr);
+					const interestVal = getField(item, ['Interest', 'Role', 'Position']) || `$${netWorthNum.toLocaleString()}`;
+
 					const element = document.createElement('div');
 					element.className = 'element';
 					element.style.backgroundColor = getTileBgColor(netWorthNum);
 
 					const idTag = document.createElement('div');
 					idTag.className = 'id-tag';
-					idTag.textContent = item.ID || (i + 1);
+					idTag.textContent = getField(item, ['ID']) || (i + 1);
 					element.appendChild(idTag);
 
 					const img = document.createElement('img');
-					img.src = item['Photo URL'] || item.Photo || 'https://via.placeholder.com/65';
+					img.src = photoVal;
 					element.appendChild(img);
 
 					const name = document.createElement('div');
 					name.className = 'name';
-					name.textContent = item.Name || 'N/A';
+					name.textContent = nameVal;
 					element.appendChild(name);
 
 					const details = document.createElement('div');
 					details.className = 'details';
-					details.textContent = item.Position || item.Role || `$${netWorthNum.toLocaleString()}`;
+					details.textContent = interestVal;
 					element.appendChild(details);
 
 					const objectCSS = new CSS3DObject(element);
@@ -294,7 +282,7 @@
 
 				const vector = new THREE.Vector3();
 
-				// 2. Sphere Layout
+				// Sphere Layout
 				for (let i = 0, l = objects.length; i < l; i++) {
 					const phi = Math.acos(-1 + (2 * i) / l);
 					const theta = Math.sqrt(l * Math.PI) * phi;
@@ -306,9 +294,9 @@
 					targets.sphere.push(object);
 				}
 
-				// 3. Double Helix Layout (Two Strands Offset by Pi)
+				// Double Helix Layout
 				for (let i = 0, l = objects.length; i < l; i++) {
-					const strand = i % 2; 
+					const strand = i % 2;
 					const theta = (i * 0.175) + (strand * Math.PI);
 					const y = -(i * 8) + 450;
 
@@ -322,7 +310,7 @@
 					targets.helix.push(object);
 				}
 
-				// 4. Grid Layout (5 x 4 x 10 Grid)
+				// Grid Layout (5 x 4 x 10)
 				for (let i = 0; i < objects.length; i++) {
 					const x = i % 5;
 					const y = Math.floor(i / 5) % 4;
@@ -335,7 +323,6 @@
 					targets.grid.push(object);
 				}
 
-				// Setup Renderer & Controls
 				renderer = new CSS3DRenderer();
 				renderer.setSize(window.innerWidth, window.innerHeight);
 				document.getElementById('container').appendChild(renderer.domElement);
@@ -371,7 +358,7 @@
 						.start();
 				}
 
-				new TWEEN.Tween(this)
+				new TWEEN.Tween({})
 					.to({}, duration * 2)
 					.onUpdate(render)
 					.start();
@@ -401,7 +388,7 @@
 						ID: i,
 						Name: `User ${i}`,
 						Position: `Role ${i}`,
-						'Photo URL': `https://i.pravatar.cc/150?img=${i % 70}`,
+						Photo: `https://i.pravatar.cc/150?img=${i % 70}`,
 						'Net Worth': Math.floor(Math.random() * 300000)
 					});
 				}
