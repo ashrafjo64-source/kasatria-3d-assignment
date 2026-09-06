@@ -187,6 +187,22 @@
 
 			const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5jh2pPbUpqqsxB_2rttpHz8EjNDFwyem_nTq9BSL8GrXi6w2BDb0fN01bLlPT4MFuTqQfvFVeCtGz/pub?output=csv';
 
+
+			// Make loadDataAndInit accessible to the global handleCredentialResponse
+  window.loadDataAndInit = function() {
+    Papa.parse(GOOGLE_SHEET_CSV_URL, {
+      download: true,
+      header: true,
+      complete: function(results) {
+        init(results.data);
+        animate();
+      },
+      error: function(err) {
+        init(generateMockData());
+        animate();
+      }
+    });
+  };
 			let camera, scene, renderer, controls;
 			const objects = [];
 			const targets = { table: [], sphere: [], helix: [], grid: [] };
