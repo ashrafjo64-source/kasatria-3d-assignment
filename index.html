@@ -135,6 +135,18 @@
 		</style>
 	</head>
 	<body>
+				<script>
+  // Global callback defined before GSI library initializes
+  function handleCredentialResponse(response) {
+    if (response.credential) {
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('menu').style.display = 'block';
+      if (window.loadDataAndInit) {
+        window.loadDataAndInit();
+      }
+    }
+  }
+</script>
 
 		<!-- Login Screen Overlay -->
 		<div id="login-overlay">
