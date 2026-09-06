@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Kasatria - 3D Periodic Table</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<link type="text/css" rel="stylesheet" href="main.css">
+		<script src="https://accounts.google.com/gsi/client" async defer></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+		<style>
+			body {
+				margin: 0;
+				background-color: #000;
+				color: #fff;
+				font-family: Arial, Helvetica, sans-serif;
+				overflow: hidden;
+			}
+
+			/* Google OAuth Overlay (Image A) */
+			#login-overlay {
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100vw;
+				height: 100vh;
+				background: #ffffff;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				z-index: 9999;
+			}
+
+			.login-card {
+				background: #ffffff;
+				padding: 40px;
+				border-radius: 8px;
+				box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+				text-align: center;
+				width: 320px;
+				color: #333333;
+			}
+
+			.login-card h2 {
+				margin-bottom: 8px;
+				font-weight: 500;
+			}
+
+			.login-card p {
+				color: #666;
+				font-size: 13px;
+				margin-bottom: 24px;
+			}
+
+			/* 3D Visualizer Menu */
+			#menu {
+				position: absolute;
+				bottom: 20px;
+				width: 100%;
+				text-align: center;
+				display: none;
+				z-index: 10;
+			}
+
+			button {
+				color: rgba(127,255,255,0.75);
+				background: transparent;
+				outline: 1px solid rgba(127,255,255,0.75);
+				border: 0px;
+				padding: 8px 16px;
+				margin: 0 4px;
+				cursor: pointer;
+				font-weight: bold;
+			}
+
+			button:hover {
+				background-color: rgba(0,255,255,0.5);
+			}
+
+			/* Tile Custom Styling (Image B) */
+			.element {
+				width: 120px;
+				height: 160px;
+				box-shadow: 0px 0px 12px rgba(0,255,255,0.3);
+				border: 1px solid rgba(255,255,255,0.2);
+				font-family: Arial, sans-serif;
+				cursor: default;
+				position: relative;
+				box-sizing: border-box;
+				padding: 8px;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: space-between;
+			}
+
+			.element:hover {
+				box-shadow: 0px 0px 16px rgba(255,255,255,0.8);
+				border: 1px solid rgba(255,255,255,0.8);
+			}
+
+			.element .id-tag {
+				position: absolute;
+				top: 6px;
+				left: 8px;
+				font-size: 10px;
+				color: #fff;
+				font-weight: bold;
+			}
+
+			.element img {
+				width: 65px;
+				height: 65px;
+				border-radius: 4px;
+				object-fit: cover;
+				margin-top: 12px;
+				border: 1px solid rgba(255,255,255,0.5);
+			}
+
+			.element .name {
+				font-size: 11px;
+				font-weight: bold;
+				color: #ffffff;
+				text-align: center;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				width: 100%;
+			}
+
+			.element .details {
+				font-size: 9px;
+				color: rgba(255,255,255,0.8);
+				text-align: center;
+			}
+		</style>
+	</head>
+	<body>
+
+		<!-- Login Screen Overlay -->
+		<div id="login-overlay">
+			<div class="login-card">
+				<h2>Welcome Back</h2>
+				<p>Sign in to access the 3D Data Visualizer</p>
+				<div id="g_id_onload"
+					data-client_id="858833981490-q9pk8vra4981ll8rdaepsdodcfdp5k34.apps.googleusercontent.com"
+					data-callback="handleCredentialResponse">
+				</div>
+				<div class="g_id_signin" data-type="standard"></div>
+			</div>
+		</div>
+
+		<div id="container"></div>
+
+		<div id="menu">
+			<button id="table">TABLE</button>
+			<button id="sphere">SPHERE</button>
+			<button id="helix">HELIX</button>
+			<button id="grid">GRID</button>
+		</div>
+
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+					"three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+				}
+			}
+		</script>
+
+		<script type="module">
+			import * as THREE from 'three';
+			import TWEEN from 'three/addons/libs/tween.module.js';
+			import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
+			import { CSS3DRenderer, CSS3DObject } from 'three/addons/renderers/CSS3DRenderer.js';
+
+			const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS5jh2pPbUpqqsxB_2rttpHz8EjNDFwyem_nTq9BSL8GrXi6w2BDb0fN01bLlPT4MFuTqQfvFVeCtGz/pub?output=csv';
+
+			let camera, scene, renderer, controls;
+			const objects = [];
+			const targets = { table: [], sphere: [], helix: [], grid: [] };
+
+			// Expose login handler globally for Google GSI API callback
+			window.handleCredentialResponse = function(response) {
+				if (response.credential) {
+					document.getElementById('login-overlay').style.display = 'none';
+					document.getElementById('menu').style.display = 'block';
+					loadDataAndInit();
+				}
+			};
+
+			function loadDataAndInit() {
+				Papa.parse(GOOGLE_SHEET_CSV_URL, {
+					download: true,
+					header: true,
+					complete: function(results) {
+						init(results.data);
+						animate();
+					},
+					error: function(err) {
+						console.error("CSV Fetch Failed. Loading fallback preview...", err);
+						init(generateMockData());
+						animate();
+					}
+				});
+			}
+
+			function parseNetWorth(val) {
+				if (!val) return 0;
+				return parseFloat(val.toString().replace(/[^0-9.-]+/g, '')) || 0;
+			}
+
+			function getTileBgColor(netWorth) {
+				if (netWorth < 100000) return '#EF3022'; // Red (<$100K)
+				if (netWorth <= 200000) return '#F39C12'; // Orange (>$100K)
+				return '#3AS48'; // Green (>$200K)
+			}
+
+			function init(data) {
+				camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 10000);
+				camera.position.z = 3000;
+
+				scene = new THREE.Scene();
+
+				// 1. Build Tiles & Table Target Layout (20 x 10 Grid)
+				data.forEach((item, i) => {
+					const netWorthNum = parseNetWorth(item['Net Worth'] || item.NetWorth || item.networth);
+					
+					const element = document.createElement('div');
+					element.className = 'element';
+					element.style.backgroundColor = getTileBgColor(netWorthNum);
+
+					const idTag = document.createElement('div');
+					idTag.className = 'id-tag';
+					idTag.textContent = item.ID || (i + 1);
+					element.appendChild(idTag);
+
+					const img = document.createElement('img');
+					img.src = item['Photo URL'] || item.Photo || 'https://via.placeholder.com/65';
+					element.appendChild(img);
+
+					const name = document.createElement('div');
+					name.className = 'name';
+					name.textContent = item.Name || 'N/A';
+					element.appendChild(name);
+
+					const details = document.createElement('div');
+					details.className = 'details';
+					details.textContent = item.Position || item.Role || `$${netWorthNum.toLocaleString()}`;
+					element.appendChild(details);
+
+					const objectCSS = new CSS3DObject(element);
+					objectCSS.position.x = Math.random() * 4000 - 2000;
+					objectCSS.position.y = Math.random() * 4000 - 2000;
+					objectCSS.position.z = Math.random() * 4000 - 2000;
+					scene.add(objectCSS);
+					objects.push(objectCSS);
+
+					// Table Layout (20 Columns x 10 Rows)
+					const col = i % 20;
+					const row = Math.floor(i / 20);
+					const objectTable = new THREE.Object3D();
+					objectTable.position.x = (col * 140) - 1330;
+					objectTable.position.y = -(row * 180) + 800;
+					targets.table.push(objectTable);
+				});
+
+				const vector = new THREE.Vector3();
+
+				// 2. Sphere Layout
+				for (let i = 0, l = objects.length; i < l; i++) {
+					const phi = Math.acos(-1 + (2 * i) / l);
+					const theta = Math.sqrt(l * Math.PI) * phi;
+
+					const object = new THREE.Object3D();
+					object.position.setFromSphericalCoords(800, phi, theta);
+					vector.copy(object.position).multiplyScalar(2);
+					object.lookAt(vector);
+					targets.sphere.push(object);
+				}
+
+				// 3. Double Helix Layout (Two Strands Offset by Pi)
+				for (let i = 0, l = objects.length; i < l; i++) {
+					const strand = i % 2; 
+					const theta = (i * 0.175) + (strand * Math.PI);
+					const y = -(i * 8) + 450;
+
+					const object = new THREE.Object3D();
+					object.position.setFromCylindricalCoords(900, theta, y);
+					
+					vector.x = object.position.x * 2;
+					vector.y = object.position.y;
+					vector.z = object.position.z * 2;
+					object.lookAt(vector);
+					targets.helix.push(object);
+				}
+
+				// 4. Grid Layout (5 x 4 x 10 Grid)
+				for (let i = 0; i < objects.length; i++) {
+					const x = i % 5;
+					const y = Math.floor(i / 5) % 4;
+					const z = Math.floor(i / 20);
+
+					const object = new THREE.Object3D();
+					object.position.x = (x * 240) - 480;
+					object.position.y = -(y * 240) + 360;
+					object.position.z = -(z * 350) + 1200;
+					targets.grid.push(object);
+				}
+
+				// Setup Renderer & Controls
+				renderer = new CSS3DRenderer();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+				document.getElementById('container').appendChild(renderer.domElement);
+
+				controls = new TrackballControls(camera, renderer.domElement);
+				controls.minDistance = 500;
+				controls.maxDistance = 6000;
+				controls.addEventListener('change', render);
+
+				document.getElementById('table').addEventListener('click', () => transform(targets.table, 2000));
+				document.getElementById('sphere').addEventListener('click', () => transform(targets.sphere, 2000));
+				document.getElementById('helix').addEventListener('click', () => transform(targets.helix, 2000));
+				document.getElementById('grid').addEventListener('click', () => transform(targets.grid, 2000));
+
+				transform(targets.table, 2000);
+				window.addEventListener('resize', onWindowResize);
+			}
+
+			function transform(targets, duration) {
+				TWEEN.removeAll();
+				for (let i = 0; i < objects.length; i++) {
+					const object = objects[i];
+					const target = targets[i];
+
+					new TWEEN.Tween(object.position)
+						.to({ x: target.position.x, y: target.position.y, z: target.position.z }, Math.random() * duration + duration)
+						.easing(TWEEN.Easing.Exponential.InOut)
+						.start();
+
+					new TWEEN.Tween(object.rotation)
+						.to({ x: target.rotation.x, y: target.rotation.y, z: target.rotation.z }, Math.random() * duration + duration)
+						.easing(TWEEN.Easing.Exponential.InOut)
+						.start();
+				}
+
+				new TWEEN.Tween(this)
+					.to({}, duration * 2)
+					.onUpdate(render)
+					.start();
+			}
+
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+				render();
+			}
+
+			function animate() {
+				requestAnimationFrame(animate);
+				TWEEN.update();
+				controls.update();
+			}
+
+			function render() {
+				renderer.render(scene, camera);
+			}
+
+			function generateMockData() {
+				const mock = [];
+				for (let i = 1; i <= 200; i++) {
+					mock.push({
+						ID: i,
+						Name: `User ${i}`,
+						Position: `Role ${i}`,
+						'Photo URL': `https://i.pravatar.cc/150?img=${i % 70}`,
+						'Net Worth': Math.floor(Math.random() * 300000)
+					});
+				}
+				return mock;
+			}
+		</script>
+	</body>
+</html>
